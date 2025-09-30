@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="DataSourcePerFileMappings">
+    <file url="file://$PROJECT_DIR$/L0/internal/storage/pq/pq.go" value="b52a6cdb-41dd-4ba3-b258-9e9179b1d365" />
+    <file url="file://$APPLICATION_CONFIG_DIR$/consoles/db/b52a6cdb-41dd-4ba3-b258-9e9179b1d365/console.sql" value="b52a6cdb-41dd-4ba3-b258-9e9179b1d365" />
+  </component>
+</project>

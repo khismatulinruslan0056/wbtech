@@ -1,0 +1,87 @@
+basePath: /
+definitions:
+  dto.ErrorResponse:
+    properties:
+      error:
+        type: string
+    type: object
+  dto.PublicItem:
+    properties:
+      brand:
+        type: string
+      name:
+        type: string
+      nm_id:
+        type: integer
+      price:
+        type: integer
+      sale:
+        maximum: 100
+        minimum: 0
+        type: integer
+      size:
+        type: string
+      total_price:
+        type: integer
+    type: object
+  dto.PublicOrder:
+    properties:
+      amount:
+        type: integer
+      currency:
+        type: string
+      date_created:
+        type: string
+      delivery_cost:
+        type: integer
+      delivery_service:
+        type: string
+      goods_total:
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/dto.PublicItem'
+        type: array
+      order_uid:
+        type: string
+    type: object
+host: localhost:8081
+info:
+  contact: {}
+  description: A simple api to get order data by its ID.
+  title: L0 Order Service API
+  version: "1.0"
+paths:
+  /order/{orderID}:
+    get:
+      description: Retrieves a complete order object from the cache or database using
+        its unique ID.
+      parameters:
+      - description: Order Unique ID
+        in: path
+        name: orderID
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully retrieved order
+          schema:
+            $ref: '#/definitions/dto.PublicOrder'
+        "400":
+          description: Invalid order ID provided
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "404":
+          description: Order with the specified ID was not found
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+        "500":
+          description: An internal server error occurred
+          schema:
+            $ref: '#/definitions/dto.ErrorResponse'
+      summary: Get an order by ID
+      tags:
+      - Orders
+swagger: "2.0"

@@ -1,0 +1,168 @@
+SHELL := bash
+.DEFAULT_GOAL := help
+
+# Project / Compose
+APP_NAME ?= l0
+ENV_FILE ?= .env
+COMPOSE ?= docker compose
+COMPOSE_FILE ?= docker-compose.yml
+export COMPOSE_PROJECT_NAME ?= $(APP_NAME)
+
+# Build args for images (подхватываются в docker-compose.yml)
+export VERSION ?= $(shell git describe --tags --dirty --always 2>/dev/null || echo dev)
+export COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+export DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+
+# Paths
+MIGRATIONS_DIR ?= migrations
+
+# Helper: загрузить .env в текущую оболочку цели
+define load_env
+	if [ -f $(ENV_FILE) ]; then \
+		echo "Using $(ENV_FILE)"; \
+		set -a; source $(ENV_FILE); set +a; \
+	fi
+endef
+
+.PHONY: help env \
+        compose-build compose-up compose-up-full compose-down compose-down-v compose-ps compose-logs logs-app logs-postgres \
+        app-shell app-restart importer-run \
+        migrate-status migrate-up migrate-up-one migrate-down migrate-reset migrate-create \
+        psql kafka-topics kafka-produce kafka-consume \
+        health clean \
+        test-ping test-get-ok test-get-not-found test-get-bad-id test-post-bad-method
+
+help: ## Показать список целей
+	@echo "Targets:"
+	@awk 'BEGIN {FS = ":.*## ?"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+env: ## Показать ключевые переменные (читаются из .env)
+	@$(call load_env); \
+	echo "COMPOSE_PROJECT_NAME=$${COMPOSE_PROJECT_NAME:-$(APP_NAME)}"; \
+	echo "VERSION=$(VERSION)"; \
+	echo "COMMIT=$(COMMIT)"; \
+	echo "DATE=$(DATE)"; \
+	echo "DSN_USER=$${DSN_USER}"; \
+	echo "DSN_NAME=$${DSN_NAME}"; \
+	echo "HTTP_ADDR=$${HTTP_ADDR}"; \
+	echo "DATABASE_URL=$${DATABASE_URL}"; \
+	echo "KAFKA_BROKERS=$${KAFKA_BROKERS}"; \
+	echo "KAFKA_TOPIC=$${KAFKA_TOPIC}"
+
+# ----------------------
+# Compose lifecycle
+# ----------------------
+compose-build: ## Сборка всех образов docker compose build
+	$(COMPOSE) -f $(COMPOSE_FILE) build
+
+compose-up: ## Поднять стек в фоне (build + up -d)
+	$(COMPOSE) -f $(COMPOSE_FILE) up -d --build
+
+compose-up-full: ## Полный перезапуск: down -v + up (удалит volume'ы БД!)
+	$(COMPOSE) -f $(COMPOSE_FILE) down -v --remove-orphans
+	$(COMPOSE) -f $(COMPOSE_FILE) up -d --build
+
+compose-down: ## Остановить и удалить контейнеры
+	$(COMPOSE) -f $(COMPOSE_FILE) down
+
+compose-down-v: ## Остановить и удалить контейнеры + volumes (безвозвратно снесёт БД)
+	$(COMPOSE) -f $(COMPOSE_FILE) down -v --remove-orphans
+
+compose-ps: ## Состояние контейнеров
+	$(COMPOSE) -f $(COMPOSE_FILE) ps
+
+compose-logs: ## Логи всего стека
+	$(COMPOSE) -f $(COMPOSE_FILE) logs -f --tail=200
+
+logs-app: ## Логи приложения
+	$(COMPOSE) -f $(COMPOSE_FILE) logs -f --tail=200 app
+
+logs-postgres: ## Логи postgres
+	$(COMPOSE) -f $(COMPOSE_FILE) logs -f --tail=200 postgres
+
+app-restart: ## Перезапустить контейнер приложения
+	$(COMPOSE) -f $(COMPOSE_FILE) restart app
+
+app-shell: ## Шелл в контейнере приложения
+	$(COMPOSE) -f $(COMPOSE_FILE) exec app sh
+
+importer-run: ## Запустить one-shot импортёр 
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm importer
+
+# ----------------------
+# DB: миграции (goose)
+# ----------------------
+migrate-status: ## Статус миграций
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate status
+
+migrate-up: ## Накатить все миграции
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate up
+
+migrate-up-one: ## Накатить одну следующую миграцию
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate up-by-one
+
+migrate-down: ## Откатить одну миграцию
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate down
+
+migrate-reset: ## Полный откат и накат заново
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm migrate reset
+
+migrate-create: ## Создать миграцию (make migrate-create NAME=add_table)
+	@if [ -z "$(NAME)" ]; then echo "NAME is required: make migrate-create NAME=add_table"; exit 1; fi
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm -v $(CURDIR)/$(MIGRATIONS_DIR):/app/migrations migrate create "$(NAME)" sql
+
+# ----------------------
+# DB: psql
+# ----------------------
+psql: ## Открыть psql в postgres-контейнере (использует DATABASE_URL из .env)
+	@$(call load_env); \
+	$(COMPOSE) -f $(COMPOSE_FILE) exec postgres psql "$${DATABASE_URL}"
+
+# ----------------------
+# Kafka helpers
+# ----------------------
+kafka-topics: ## Список топиков
+	$(COMPOSE) -f $(COMPOSE_FILE) exec kafka \
+	kafka-topics --bootstrap-server kafka:29092 --list
+
+kafka-produce: ## Продюсер в топик из .env (интерактивно)
+	@$(call load_env); \
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T kafka bash -lc 'kafka-console-producer --bootstrap-server kafka:29092 --topic "$${KAFKA_TOPIC}"'
+
+kafka-consume: ## Консюмер с начала (исп. KAFKA_TOPIC и KAFKA_GROUP_ID из .env)
+	@$(call load_env); \
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T kafka bash -lc 'kafka-console-consumer --bootstrap-server kafka:29092 --topic "$${KAFKA_TOPIC}" --from-beginning --group "$${KAFKA_GROUP_ID:-tmp-group}"'
+
+# ----------------------
+# Test Curls & API
+# ----------------------
+test-ping: ## [CURL] Проверить эндпоинт /healthz (простой пинг)
+	@$(call load_env); \
+	curl -i "http://$${HTTP_ADDR}/ping"
+
+test-get-ok: ## [CURL] GET /order/{id} - успешный запрос (ожидается 200 OK)
+	@$(call load_env); \
+	curl -i "http://$${HTTP_ADDR}/order/b563feb7b2b84b6test"
+
+test-get-not-found: ## [CURL] GET /order/{id} - ID не найден (ожидается 404 Not Found)
+	@$(call load_env); \
+	curl -i "http://$${HTTP_ADDR}/order/a1b2c3d4e5f6a1b2c3d4"
+
+test-get-bad-id: ## [CURL] GET /order/{id} - невалидный ID (ожидается 400 Bad Request)
+	@$(call load_env); \
+	curl -i "http://$${HTTP_ADDR}/order/short-id"
+
+test-post-bad-method: ## [CURL] POST /order/{id} - неверный метод (ожидается 405 Method Not Allowed)
+	@$(call load_env); \
+	curl -i -X POST "http://$${HTTP_ADDR}/order/b563feb7b2b84b6test"
+
+# ----------------------
+# Misc
+# ----------------------
+health: ## Проверка healthz приложения (для скриптов, падает с ошибкой)
+	@$(call load_env); \
+	curl -fsS "http://$${HTTP_ADDR}/healthz" && echo "OK" || (echo "not healthy"; exit 1)
+
+clean: ## Локальный клинап + down -v (удалит volumes)
+	rm -rf bin coverage.out cover.html
+	$(COMPOSE) -f $(COMPOSE_FILE) down -v --remove-orphans
