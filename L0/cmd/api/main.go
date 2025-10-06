@@ -26,48 +26,5 @@ func main() {
 	}
 
 	application.Run()
-	//todo:
-	// -postgres: +
-	// 			-errgroup +
-	//          -ошибки+
-	//          -маппер +
-	// -handlers: +
-	// -transaction;+
-	// -logger;+
-	// -connection pool+
-	// -index;+
-	// -middleware: +
-	// 		-log; +
-	//		-validation; +
-	// -router: +
-	// -serverhttp: +
-	// -cash; +
-	// -поправить везде возврат данных из бд +
-	// -циклические связи сделать для кеша нормальную структуру +
-	// -config; env +
-	// -validation: +
-	// -kafka; +
-	// -swagger; +
-	// -retry;+
-	// 	-kafka; +
-	//  -db +
-	// -backoff; +
-	// 	-kafka; +
-	//  -db +
-	// -data-race; +
-	// -fine-grained locks; +
-	// -front; +
-	// -main; +
-	// -test; +
-
-	//todo
-	// -readme;
-	// -dockerfile; +
-	// -docker-compose; +
-	// -video;
-	// -makefile; +
-
-	//todo: позже
-	// -metrics; -
 
 }
