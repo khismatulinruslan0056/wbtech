@@ -14,13 +14,31 @@ import (
 )
 
 func main() {
+	fmt.Println("отмена контекста")
 	ch := make(chan int)
 	var wg sync.WaitGroup
-	//ctx, cancel := context.WithCancel(context.Background()) // простая отмена контекста
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // отмена по таймауту
-	//ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT) // по сис вызову
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
 
+	go func() {
+		time.Sleep(1 * time.Second)
+		cancel()
+	}()
+	wg.Add(1)
+	go goroutineStopCtx(ctx, &wg, ch)
+	for n := range ch {
+		fmt.Println(n)
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	cancel()
+	wg.Wait()
+
+	fmt.Println("____________________________________________________")
+	fmt.Println("отмена контекста по таймауту")
+	ch = make(chan int)
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 	wg.Add(1)
 	go goroutineStopCtx(ctx, &wg, ch)
 
@@ -31,12 +49,28 @@ func main() {
 
 	wg.Wait()
 
-	fmt.Println()
+	fmt.Println("____________________________________________________")
+	fmt.Println("отмена контекста syscall")
+	ch = make(chan int)
+	ctx, cancel = signal.NotifyContext(context.Background(), syscall.SIGINT) // по сис вызову
+	defer cancel()
+	wg.Add(1)
+	go goroutineStopCtx(ctx, &wg, ch)
+
+	for n := range ch {
+		fmt.Println(n)
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	wg.Wait()
+
+	fmt.Println("____________________________________________________")
+	fmt.Println("канал завершения")
 	var wgCh sync.WaitGroup
 	ch = make(chan int)
 	chDone := make(chan struct{})
 	wgCh.Add(1)
-	go goroutineStopChan(&wg, ch, chDone)
+	go goroutineStopChan(&wgCh, ch, chDone)
 	for n := range ch {
 		fmt.Println(n)
 		if n > 25 {
@@ -46,7 +80,10 @@ func main() {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
+	wgCh.Wait()
 
+	fmt.Println("____________________________________________________")
+	fmt.Println("канал сигнал")
 	var wgSig sync.WaitGroup
 	ch = make(chan int)
 	chSig := make(chan os.Signal)
@@ -64,6 +101,8 @@ LOOP:
 	}
 	wgSig.Done()
 
+	fmt.Println("____________________________________________________")
+	fmt.Println("остановка по флагу")
 	var flag atomic.Bool
 	var wgFlag sync.WaitGroup
 	wgFlag.Add(1)
@@ -74,6 +113,8 @@ LOOP:
 
 	wgFlag.Wait()
 
+	fmt.Println("____________________________________________________")
+	fmt.Println("остановка по условию (невалидный айтем)")
 	var wgItem sync.WaitGroup
 	chItem := make(chan *item)
 	wgItem.Add(1)
@@ -92,6 +133,8 @@ LOOP:
 	close(chItem)
 	wgItem.Wait()
 
+	fmt.Println("____________________________________________________")
+	fmt.Println("goexit")
 	var wgExit sync.WaitGroup
 	wgExit.Add(1)
 	go goroutineStopGoExit(&wgExit)
